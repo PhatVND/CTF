@@ -332,7 +332,7 @@ căn chỉnh stack là hợp lý, chúng ta đặt đúng địa chỉ `printf` 
 # EXPLOITATION
 
 ```
-from pwn import \*
+from pwn import *
 
 e = ELF('./yet_another_fsb_patched')
 libc = ELF('./libc.so.6')
