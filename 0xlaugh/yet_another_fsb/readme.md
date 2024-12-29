@@ -265,7 +265,8 @@ pwndbg>
 
 Có thể leak được địa chỉ `__libc_start_main` ở địa chỉ `0x7fffffffda18`. Để biết được nó ở offset nào thì ban đầu ta cần xác định được chỗ ta nhập input là ở địa chỉ nào của stack đã. Sau đó áp dụng công thức: `(địa chỉ cần biết offset - địa chỉ input) / 8 + 6`
 
-````0:0000│ rsi rsp 0x7fffffffd860 ◂— 0xa636261 /_ 'abc\n' _/
+```
+0:0000│ rsi rsp 0x7fffffffd860 ◂— 0xa636261 /_ 'abc\n' _/
 01:0008│-108 0x7fffffffd868 —▸ 0x7fffffffd940 ◂— 0
 02:0010│-100 0x7fffffffd870 —▸ 0x7fffffffd980 —▸ 0x7fffffffd9c0 —▸ 0x7ffff7ffd000 (\_rtld_global) —▸ 0x7ffff7ffe2e0 ◂— ...
 03:0018│-0f8 0x7fffffffd878 —▸ 0x7ffff7fe068d ◂— add rsp, 0xd8
@@ -276,13 +277,16 @@ Có thể leak được địa chỉ `__libc_start_main` ở địa chỉ `0x7ff
 ───────────────────────────────────────────────────────────────────────────────[ BACKTRACE ]───────────────────────────────────────────────────────────────────────────────
 ► 0 0x4011db main+52
 1 0x7ffff7dfac88 None
-2 0x7ffff7dfad4c \_\_libc_start_main+140
-3 0x401085 \_start+37
+2 0x7ffff7dfad4c __libc_start_main+140
+3 0x401085 _start+37
 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 pwndbg> p/d 0x7fffffffda18 - 0x7fffffffd860
 $1 = 440
 pwndbg> p/d (0x7fffffffda18 - 0x7fffffffd860) /8 + 6
-$2 = 61```
+$2 = 61
+```
+
+Vậy offset ta cần leak là 61, sau đó ta lấy địa chỉ được leak trừ cho offset của libc_start_main là ổn
 
 # EXPLOITATION
 
@@ -406,3 +410,4 @@ ZAWARUDO$
 ```
 
 ```
+````
