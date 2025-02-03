@@ -1,0 +1,1 @@
+nullconCTF{fake_flag}
